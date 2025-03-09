@@ -1,7 +1,7 @@
-import { createMiddleware } from 'hono/factory';
-import database from '../database';
-import { verify } from 'hono/jwt';
 import { eq } from 'drizzle-orm';
+import { createMiddleware } from 'hono/factory';
+import { verify } from 'hono/jwt';
+import database from '../database';
 import { teams } from '../database/schema';
 
 export type Data = {
@@ -30,7 +30,7 @@ export const authenticate = createMiddleware<{ Bindings: Env; Variables: { data:
 		if (teamDetails.endTime) return c.json({ message: 'yay! you completed the quest!', type: 4 }, 418);
 		if (!teamDetails.startTime || !teamDetails.lastSyncedTime) return c.json({ message: 'please login again!', type: 4 }, 401);
 		if (teamDetails.lastSyncedTime.getTime() > teamDetails.startTime.getTime() + 1800000)
-			return c.json({ message: 'health is zero 1', type: 5 });
+			return c.json({ message: 'health is zero 1', type: 5 }, 422); // update db?
 
 		const currentTime = new Date();
 		const healthLostInBetween = ((currentTime.getTime() - teamDetails.lastSyncedTime.getTime()) / 1000) * 0.025;
@@ -65,6 +65,6 @@ export const authenticate = createMiddleware<{ Bindings: Env; Variables: { data:
 			return next();
 		}
 	} catch (error) {
-		return c.json({ message: 'error happened' }, 500);
+		return c.json({ message: 'couldnt authenticate' }, 401);
 	}
 });

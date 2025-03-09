@@ -1,16 +1,19 @@
-import { z } from 'zod';
-import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import database from './database';
-import { generate } from 'otp-generator';
-import { teams, members, coupons } from './database/schema';
-import { sendSms } from './services';
 import { eq, inArray } from 'drizzle-orm';
-import { sign, verify } from 'hono/jwt';
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { sign } from 'hono/jwt';
+import { generate } from 'otp-generator';
+import { z } from 'zod';
 import questions from '../data';
+import database from './database';
+import { coupons, members, teams } from './database/schema';
 import { authenticate } from './middlewares/authenticate';
+import { sendSms } from './services';
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.use(cors());
 
 app.get('/', (c) => c.text('server up'));
 
@@ -29,7 +32,7 @@ app.post(
 		const { name, phoneNumbers, secretKey } = c.req.valid('json');
 
 		if (secretKey != c.env.REGISTER_KEY) {
-			return c.text('UNAUTHORIZED', 401);
+			return c.json({ message: 'unauthorized' }, 403);
 		}
 
 		const teamId = generate(6, {
@@ -49,7 +52,7 @@ app.post(
 			const unplayedStories = [1, 2, 3].filter((story) => !alreadyPlayedStories.some((record) => record.story === story));
 
 			if (unplayedStories.length == 0) {
-				return c.text('ALREADY PLAYED ALL STORIES');
+				return c.json({ message: 'team already played all stories' }, 422);
 			}
 
 			const story = unplayedStories[Math.floor(Math.random() * unplayedStories.length)];
@@ -66,15 +69,15 @@ app.post(
 
 			await sendSms(c, phoneNumbers[0], teamId);
 
-			return c.text('REGISTERED');
+			return c.json({ message: 'registered' }, 200);
 		} catch (error) {
 			const errorMessage = (error as Error).message;
 
 			if (errorMessage.startsWith('SMSERROR')) {
 				await db.batch([db.delete(teams).where(eq(teams.id, teamId)), db.delete(members).where(eq(members.team, teamId))]);
-				return c.text('SMSERROR');
+				return c.json({ message: 'sms error' }, 500);
 			} else {
-				return c.text(errorMessage);
+				return c.json({ message: 'internal server error' }, 500);
 			}
 		}
 	},
@@ -98,7 +101,7 @@ app.post(
 			});
 
 			if (!team) {
-				return c.text('ERROR: WRONG OTP');
+				return c.json({ message: 'wrong otp entered' }, 422);
 			}
 
 			if (!team.startTime) {
@@ -111,10 +114,10 @@ app.post(
 
 			const token = await sign({ otp }, c.env.REGISTER_KEY);
 
-			return c.json({ token });
+			return c.json({ token }, 200);
 		} catch (error) {
 			const errorMessage = (error as Error).message;
-			return c.text(errorMessage);
+			return c.json({ message: errorMessage }, 500);
 		}
 	},
 );
@@ -125,7 +128,7 @@ app.get('/question', authenticate, async (c) => {
 		const { answer, ...others } = questions[story - 1][stage - 1][phase - 1];
 		return c.json({ ...others, stage, story, phase, startTime, endTime, health }, 200);
 	} catch (error) {
-		return c.json({ message: 'Internal server error' }, 500);
+		return c.json({ message: 'internal server error' }, 500);
 	}
 });
 
@@ -157,7 +160,7 @@ app.post(
 					.set({ lastSyncedTime: currentTime, health: newHealth })
 					.where(eq(teams.id, `${otp}`));
 
-				return c.json({ message: 'Wrong Answer/Code Scanned' }, 400);
+				return c.json({ message: 'wrong answer or qr scanned' }, 400);
 			}
 
 			const newStage = ([1, 3].includes(stage) && phase == 4) || (stage == 2 && phase == 2) ? stage + 1 : stage;
@@ -168,9 +171,9 @@ app.post(
 				.set({ stage: newStage, phase: newPhase, lastSyncedTime: currentTime, endTime: stage == 4 && phase == 3 ? currentTime : null })
 				.where(eq(teams.id, `${otp}`));
 
-			return c.json({ message: 'Correct Answer!' }, 200);
+			return c.json({ message: 'correct answer!' }, 200);
 		} catch (error) {
-			return c.json({ message: 'Internal server error' }, 500);
+			return c.json({ message: 'internal server error' }, 500);
 		}
 	},
 );
@@ -192,12 +195,12 @@ app.post(
 			const db = database(c.env.DB);
 
 			const couponDetails = await db.query.coupons.findFirst({ where: eq(coupons.data, coupon) });
-			if (!couponDetails) return c.json({ message: 'invalid coupon code' }, 400);
-			if (couponDetails.isUsed) return c.json({ message: 'coupon already used' }, 400);
+			if (!couponDetails) return c.json({ message: 'invalid coupon code' }, 422);
+			if (couponDetails.isUsed) return c.json({ message: 'coupon already used' }, 422);
 
 			const teamDetails = await db.query.teams.findFirst({ where: eq(teams.id, `${otp}`) });
 			if (!teamDetails) return c.json({ message: 'wrong otp entered' }, 422);
-			if (teamDetails.isRestored) return c.json({ message: 'repair only once!' });
+			if (teamDetails.isRestored) return c.json({ message: 'already restored' }, 422);
 
 			const newHealth = teamDetails.health + 40 >= 100 ? 100 : teamDetails.health + 40;
 
@@ -209,10 +212,10 @@ app.post(
 				db.update(coupons).set({ isUsed: true }).where(eq(coupons.data, coupon)),
 			]);
 
-			return c.json({ message: 'Ship Health Restored!!' });
+			return c.json({ message: 'health restored' }, 200);
 		} catch (error) {
 			const errorMessage = (error as Error).message;
-			return c.text(errorMessage);
+			return c.json({ message: errorMessage }, 500);
 		}
 	},
 );
