@@ -220,4 +220,23 @@ app.post(
 	},
 );
 
+app.get('/leaderboard', async (c) => {
+	try {
+		const db = database(c.env.DB);
+
+		const result = await db.query.teams.findMany({
+			columns: {
+				name: true,
+				health: true,
+				startTime: true,
+				endTime: true,
+			},
+		});
+
+		return c.json(result, 200);
+	} catch (error) {
+		return c.json({ message: 'internal server error' }, 500);
+	}
+});
+
 export default app;
