@@ -9,6 +9,7 @@ export const teams = sqliteTable('teams', {
 	phase: integer('phase').notNull().default(1),
 	health: real('health').notNull().default(100),
 	isRestored: integer('is_restored', { mode: 'boolean' }).notNull().default(false),
+	finalQuestion: text('final_question'),
 	startTime: integer('start_time', { mode: 'timestamp_ms' }), // note startTime on first login
 	endTime: integer('end_time', { mode: 'timestamp_ms' }), // note endTime on winning
 	lastSyncedTime: integer('last_synced_time', { mode: 'timestamp_ms' }),

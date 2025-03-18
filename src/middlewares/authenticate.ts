@@ -13,6 +13,7 @@ export type Data = {
 	startTime: Date | null;
 	lastSyncedTime: Date;
 	health: number;
+	finalQuestion: string;
 };
 
 export const authenticate = createMiddleware<{ Bindings: Env; Variables: { data: () => Data } }>(async (c, next) => {
@@ -59,7 +60,8 @@ export const authenticate = createMiddleware<{ Bindings: Env; Variables: { data:
 					startTime: teamDetails.startTime,
 					lastSyncedTime: currentTime,
 					health: newHealth,
-				};
+					finalQuestion: teamDetails.finalQuestion
+				} as Data;
 			});
 
 			return next();

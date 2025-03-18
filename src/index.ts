@@ -5,7 +5,7 @@ import { cors } from 'hono/cors';
 import { sign } from 'hono/jwt';
 import { generate } from 'otp-generator';
 import { z } from 'zod';
-import questions from '../data';
+import { Questions, OfflineQuestions } from '../data';
 import database from './database';
 import { coupons, members, teams } from './database/schema';
 import { authenticate } from './middlewares/authenticate';
@@ -125,7 +125,7 @@ app.post(
 app.get('/question', authenticate, async (c) => {
 	try {
 		const { stage, story, phase, startTime, endTime, health } = c.var.data();
-		const { answer, ...others } = questions[story - 1][stage - 1][phase - 1];
+		const { answer, ...others } = Questions[story - 1][stage - 1][phase - 1];
 		return c.json({ ...others, stage, story, phase, startTime, endTime, health }, 200);
 	} catch (error) {
 		return c.json({ message: 'internal server error' }, 500);
@@ -143,13 +143,41 @@ app.post(
 	),
 	async (c) => {
 		try {
-			const { otp, story, phase, stage, health } = c.var.data();
+			const { otp, story, phase, stage, health, finalQuestion } = c.var.data();
 			const { answer } = c.req.valid('json');
 
 			const db = database(c.env.DB);
 
 			const currentTime = new Date();
-			const correctAnswer = questions[story - 1][stage - 1][phase - 1].answer;
+			const correctAnswer = Questions[story - 1][stage - 1][phase - 1].answer;
+
+			// console.log("correctAnswer", correctAnswer);
+
+
+			if (!correctAnswer) {
+				// we are in stage 4 phase 3, change phase to 4
+				if (stage == 4 && phase == 3) {
+					await db.update(teams).set({ finalQuestion: answer, lastSyncedTime: currentTime, phase: 4 }).where(eq(teams.id, `${otp}`));
+					return c.json({ message: 'wrong answer or qr scanned' }, 400);
+				} else {
+					return c.json({ message: 'internal server error' }, 500);
+				}
+			}
+
+			if (stage == 4 && phase == 4) {
+				const finalAnswer = OfflineQuestions.find(({ question }) => question == finalQuestion);
+
+				if (!finalAnswer) {
+					return c.json({ message: 'wrong answer or qr scanned' }, 400);
+				}
+
+				if (finalAnswer.answer.toLowerCase() == answer.toLowerCase()) {
+					await db.update(teams).set({ lastSyncedTime: currentTime, endTime: currentTime }).where(eq(teams.id, `${otp}`));
+					return c.json({ message: 'correct answer!' }, 200);
+				}
+
+				return c.json({ message: 'wrong answer' }, 400);
+			}
 
 			// answer is wrong, deduct 5 health
 			if (correctAnswer.toLowerCase() != answer.toLowerCase()) {
@@ -164,11 +192,11 @@ app.post(
 			}
 
 			const newStage = ([1, 3].includes(stage) && phase == 4) || (stage == 2 && phase == 2) ? stage + 1 : stage;
-			const newPhase = newStage != stage ? 1 : stage == 4 && phase == 3 ? phase : phase + 1;
+			const newPhase = (newStage != stage ? 1 : (stage == 4 && phase == 4 ? phase : phase + 1));
 
 			await db
 				.update(teams)
-				.set({ stage: newStage, phase: newPhase, lastSyncedTime: currentTime, endTime: stage == 4 && phase == 3 ? currentTime : null })
+				.set({ stage: newStage, phase: newPhase, lastSyncedTime: currentTime, endTime: stage == 4 && phase == 4 ? currentTime : null })
 				.where(eq(teams.id, `${otp}`));
 
 			return c.json({ message: 'correct answer!' }, 200);
