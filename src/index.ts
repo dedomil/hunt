@@ -24,14 +24,20 @@ app.post(
 		z.object({
 			name: z.string().max(25),
 			phoneNumbers: z.array(z.number().lt(10000000000)).min(2).max(6),
-			secretKey: z.string(),
+		}),
+	),
+	zValidator(
+		'header',
+		z.object({
+			"authorization": z.string(),
 		}),
 	),
 	async (c) => {
 		const db = database(c.env.DB);
-		const { name, phoneNumbers, secretKey } = c.req.valid('json');
+		const { name, phoneNumbers } = c.req.valid('json');
+		const { authorization } = c.req.valid('header');
 
-		if (secretKey != c.env.REGISTER_KEY) {
+		if (authorization != c.env.REGISTER_KEY) {
 			return c.json({ message: 'unauthorized' }, 403);
 		}
 
@@ -67,9 +73,9 @@ app.post(
 				),
 			]);
 
-			await sendSms(c, phoneNumbers[0], teamId);
+			await sendSms(c, phoneNumbers[0], teamId, name);
 
-			return c.json({ message: 'registered' }, 200);
+			return c.json({ message: 'registered', otp: teamId }, 200);
 		} catch (error) {
 			const errorMessage = (error as Error).message;
 
@@ -151,16 +157,17 @@ app.post(
 			const currentTime = new Date();
 			const correctAnswer = Questions[story - 1][stage - 1][phase - 1].answer;
 
-			// console.log("correctAnswer", correctAnswer);
-
-
 			if (!correctAnswer) {
 				// we are in stage 4 phase 3, change phase to 4
 				if (stage == 4 && phase == 3) {
+					const finalAnswer = OfflineQuestions.find(({ question }) => question == answer);
+
+					if (!finalAnswer) {
+						return c.json({ message: 'invalid qr scanned' }, 400);
+					}
+
 					await db.update(teams).set({ finalQuestion: answer, lastSyncedTime: currentTime, phase: 4 }).where(eq(teams.id, `${otp}`));
-					return c.json({ message: 'wrong answer or qr scanned' }, 400);
-				} else {
-					return c.json({ message: 'internal server error' }, 500);
+					return c.json({ message: 'correct answer!' }, 200);
 				}
 			}
 
@@ -180,7 +187,7 @@ app.post(
 			}
 
 			// answer is wrong, deduct 5 health
-			if (correctAnswer.toLowerCase() != answer.toLowerCase()) {
+			if (correctAnswer?.toLowerCase() != answer.toLowerCase()) {
 				const newHealth = health - 5 <= 0 ? 0 : health - 5;
 
 				await db

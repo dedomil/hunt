@@ -3,6 +3,7 @@ import { createMiddleware } from 'hono/factory';
 import { verify } from 'hono/jwt';
 import database from '../database';
 import { teams } from '../database/schema';
+import { endTime, startTime } from 'hono/timing';
 
 export type Data = {
 	otp: number;
@@ -28,7 +29,7 @@ export const authenticate = createMiddleware<{ Bindings: Env; Variables: { data:
 		const teamDetails = await db.query.teams.findFirst({ where: eq(teams.id, `${otp}`) });
 
 		if (!teamDetails) return c.json({ message: 'wrong otp entered' }, 401);
-		if (teamDetails.endTime) return c.json({ message: 'yay! you completed the quest!', type: 4 }, 418);
+		if (teamDetails.endTime) return c.json({ message: 'yay! you completed the quest!', type: 4, name: teamDetails.name, startTime: teamDetails.startTime, endTime: teamDetails.endTime }, 418);
 		if (!teamDetails.startTime || !teamDetails.lastSyncedTime) return c.json({ message: 'please login again!', type: 4 }, 401);
 		if (teamDetails.lastSyncedTime.getTime() > teamDetails.startTime.getTime() + 1800000)
 			return c.json({ message: 'health is zero 1', type: 5 }, 422); // update db?
