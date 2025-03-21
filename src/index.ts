@@ -178,7 +178,7 @@ app.post(
 					return c.json({ message: 'wrong answer or qr scanned' }, 400);
 				}
 
-				if (finalAnswer.answer.toLowerCase() == answer.toLowerCase()) {
+				if (finalAnswer.answer.trim().toLowerCase() == answer.toLowerCase()) {
 					await db.update(teams).set({ lastSyncedTime: currentTime, endTime: currentTime }).where(eq(teams.id, `${otp}`));
 					return c.json({ message: 'correct answer!' }, 200);
 				}
@@ -187,7 +187,7 @@ app.post(
 			}
 
 			// answer is wrong, deduct 5 health
-			if (correctAnswer?.toLowerCase() != answer.toLowerCase()) {
+			if (correctAnswer?.trim().toLowerCase() != answer.toLowerCase()) {
 				const newHealth = health - 5 <= 0 ? 0 : health - 5;
 
 				await db
